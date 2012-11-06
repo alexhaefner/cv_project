@@ -1,4 +1,5 @@
 
+import time
 import math
 import numpy as np
 import cv
@@ -10,15 +11,18 @@ cv2.namedWindow("w1", cv.CV_WINDOW_AUTOSIZE)
 camera_index = 0
 count = 0
 capture = cv2.VideoCapture(camera_index)
-N_o = build_gaussian(['hands/{0}.png'.format(count) for count in ['0', '1', '2']])
-N_B = build_gaussian(['background/{0}.png'.format(count) for count in ['0', '1', '2']])
+image_collection = ['0', '1', '2', '3', '4']
+N_o = build_gaussian(['hands/{0}.png'.format(count) for count in image_collection])
+N_B = build_gaussian(['background/{0}.png'.format(count) for count in image_collection])
 
 def repeat():
     global capture #declare as globals since we are assigning to them now
     global camera_index
     global count
+    then = time.time()
     image = capture.read()[1] # image.shape to get height, width, depth
     image = cv2.resize(image, (320, 240))
+    image2 = np.copy(image)
     #image = cv2.integral(image)
     height, width, _ = image.shape
     prob = np.zeros((240, 320))
@@ -50,23 +54,25 @@ def repeat():
                 probability = math.exp(-KLDistance(N_iw, N_o)/ (KLDistance(N_iw, N_o) + KLDistance(N_iw, N_B)))
             except:
                 probability = 0
-                import ipdb; ipdb.set_trace()
             prob[(j, k)]  = probability
-            if probability > 0.3:
-                image[(j, k)][0] = 250
-                image[(j, k)][1] = 0
-                image[(j, k)][2] = 0
+            if prob[(j, k)] > 0.5:
+                image2[(j, k)][0] = 255
+                image2[(j, k)][1] = 255
+                image2[(j, k)][2] = 255
+            #if probability > 0.3:
+             #   image[(j, k)][0] = 250
+              #  image[(j, k)][1] = 0
+               # image[(j, k)][2] = 0
 
-    print "done"
-    cv2.imshow("w1", image)
+    cv2.imshow("w1", image2)
     c = cv2.waitKey(10)
     if(c == 101):
         exit()
     if(c == 112):
         cv2.imwrite('{0}.jpg'.format(count), image)
         count += 1
+    now = time.time()
+    print now - then
 
 
-
-while True:
-        repeat()
+repeat()
