@@ -68,16 +68,24 @@ int calculate_image_probabilities(cv::Mat &image, cv::Mat &prob, Gaussian3D &N_o
             {
                 for (int rindex =rstart; rindex< rstart+rheight; rindex++)
                 {
-                    pixels[count] = cv::Mat(image.at<cv::Vec3f>(cindex, rindex));
+                    cv::Vec3b bgrpixel = image.at<cv::Vec3b>(rindex, cindex);
+                    cv::Vec3f bgrpixel_float = cv::Vec3f(0.0, 0.0, 0.0);
+                    bgrpixel_float[0] = (float)bgrpixel[0] / 255;
+                    bgrpixel_float[1] = (float)bgrpixel[1] / 255;
+                    bgrpixel_float[2] = (float)bgrpixel[2] / 255;
+                    //std::cout << bgrpixel_float << std::endl;
+                    pixels[count] = cv::Mat(bgrpixel_float, true);
                     count++;
                 }
             }
             Gaussian3D N_iw = Gaussian3D(pixels, count);
             try {
                 double prob = exp(-KL_Distance(N_iw, N_o) / (KL_Distance(N_iw, N_o) + KL_Distance(N_iw, N_b)));
+                std::cout << prob << std::endl;
             } catch (int e) {
                 printf("FAIL");
             }
+            //std::cout << prob << std::endl;
         }
     }
     return 0;
@@ -93,6 +101,9 @@ int main(int argc, const char * argv[])
     cv::namedWindow("image");
     while(true) {
         capture.read(image);
+        cv::Size new_img_dims = cv::Size(320, 240);
+        cv::Mat newImage;
+        cv::resize(image, image, new_img_dims);
         cv::Mat prob = cv::Mat(image.rows, image.cols, CV_64F);
         calculate_image_probabilities(image, prob, hand_gaussian, background_gaussian);
         cv::imshow("image", image);

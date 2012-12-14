@@ -14,6 +14,7 @@ capture = cv2.VideoCapture(camera_index)
 image_collection = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15']
 N_o = build_gaussian(['hands/{0}.png'.format(count) for count in image_collection])
 N_B = build_gaussian(['background/{0}.png'.format(count) for count in image_collection])
+import ipdb; ipdb.set_trace()
 
 def repeat():
     global capture #declare as globals since we are assigning to them now
