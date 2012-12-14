@@ -11,6 +11,8 @@
 #include <math.h>
 #include <opencv2/core/core.hpp>
 #include <opencv2/highgui/highgui.hpp>
+#include <opencv2/gpu/gpu.hpp>
+#include <pthread.h>
 #include <vector>
 #include <string>
 
@@ -29,6 +31,6 @@ public:
 
 extern Gaussian3D build_gaussian(std::string image_names[], int length);
 
-extern double KL_Distance(Gaussian3D, Gaussian3D);
+extern double KL_Distance(Gaussian3D &, Gaussian3D &);
 
 #endif
