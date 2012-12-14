@@ -31,6 +31,6 @@ public:
 
 extern Gaussian3D build_gaussian(std::string image_names[], int length);
 
-extern double KL_Distance(Gaussian3D &, Gaussian3D &);
+extern double KL_Distance(Gaussian3D &, Gaussian3D &, cv::Mat &, cv::Mat &, cv::Mat &);
 
 #endif

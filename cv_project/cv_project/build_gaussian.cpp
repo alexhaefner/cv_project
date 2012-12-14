@@ -86,34 +86,29 @@ Gaussian3D build_gaussian(std::string image_names[], int length)
     return result;
 }
 
-double KL_Distance(Gaussian3D &gauss1, Gaussian3D &gauss2)
+double KL_Distance(Gaussian3D &gauss1, Gaussian3D &gauss2, cv::Mat &mu1_minus_m2, cv::Mat &gauss2invert_and_trace, cv::Mat &resulting)
 {
+    //This function has been optimized to use as few cv::Mat 3x3 as possible because they have slow constructors.
     double result;
     try {
-        cv::Mat transposed;// = cv::Mat(3,1,CV_64FC1);
-        cv::Mat mu1_minus_m2 = (gauss1.mu-gauss2.mu);
-        cv::transpose(mu1_minus_m2, transposed);
+        mu1_minus_m2 = (gauss1.mu-gauss2.mu);
         //std::cout << gauss1.mu << std::endl;
-        cv::Mat gauss2invert;// = cv::Mat(3,3,CV_64FC1);
-        cv::invert(gauss2.sigma, gauss2invert);
-        cv::Mat gauss_trace;// = cv::Mat(3,3, CV_64FC1);
-        cv::add(gauss2invert, gauss1.sigma, gauss_trace);
-        //std::cout << gauss2.sigma << std::endl;
-        //std::cout << gauss1.sigma << std::endl;
+        // = cv::Mat(3,3,CV_64FC1);
+        cv::invert(gauss2.sigma, gauss2invert_and_trace);
+        //Right now it's gauss2invert
+        resulting = gauss2invert_and_trace * mu1_minus_m2;
+        cv::add(gauss2invert_and_trace, gauss1.sigma, gauss2invert_and_trace);
         double det_gauss2 = cv::determinant(gauss2.sigma);
         double det_gauss1 = cv::determinant(gauss1.sigma);
-        double gauss_trace_res = cv::trace(gauss_trace)[0];
+        //and now it's gauss2trace
+        double gauss_trace_res = cv::trace(gauss2invert_and_trace)[0];
         result = 0.5*log(det_gauss2/det_gauss1) + gauss_trace_res - 3.0;
-        //mu1_minus_m2.assignTo(mu1_minus_m2, CV_64FC1);
-        //gauss2invert.assignTo(gauss2invert, CV_64FC1);
-        //std::cout << mu1_minus_m2 << std::endl;
-        //std::cout << gauss2invert << std::endl;
-        //cv::Mat resulting = cv::Mat(3,1,CV_64FC1);
-        cv::Mat resulting = gauss2invert * mu1_minus_m2;
-        //resulting.assignTo(resulting, CV_64FC1);
-        //transposed.assignTo(transposed, CV_64FC1);
-        cv::Mat final = resulting * transposed;
-        result += final.at<double>(0,0);
+        
+        // gauss2invert_and_trace is now used as transpose;
+        cv::transpose(mu1_minus_m2, gauss2invert_and_trace);
+        //mu1_minus_m2 is the result
+        mu1_minus_m2 = resulting * gauss2invert_and_trace;
+        result += mu1_minus_m2.at<double>(0,0);
         if (result != result)  // nan case
             return 0.0;
     } catch (int e)

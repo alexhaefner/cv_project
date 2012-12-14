@@ -354,6 +354,13 @@
 					/usr/local/Cellar/libtiff/4.0.3/lib,
 					"\"/usr/local/lib/python2.7/site-packages\"",
 				);
+				OTHER_CPLUSPLUSFLAGS = (
+					"$(OTHER_CFLAGS)",
+					"-O1",
+					"-O2",
+					"-O3",
+					"-msse3",
+				);
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
 			name = Debug;
@@ -372,6 +379,13 @@
 					/usr/local/Cellar/tbb/4.1u1/lib,
 					/usr/local/Cellar/libtiff/4.0.3/lib,
 					"\"/usr/local/lib/python2.7/site-packages\"",
+				);
+				OTHER_CPLUSPLUSFLAGS = (
+					"$(OTHER_CFLAGS)",
+					"-O1",
+					"-O2",
+					"-O3",
+					"-msse3",
 				);
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};

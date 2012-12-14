@@ -52,8 +52,8 @@ struct gaussians {
 void *callKLDistance(void* pass)
 {
     gaussians *calls = (gaussians *)pass;
-    double result = KL_Distance(*(calls->a), *(calls->b));
-    return (void*)&result;
+    //double result = KL_Distance(*(calls->a), *(calls->b));
+    //return (void*)&result;
 }
 
 int calculate_image_probabilities(cv::Mat &image, cv::Mat &prob, Gaussian3D &N_o, Gaussian3D &N_b)
@@ -64,6 +64,9 @@ int calculate_image_probabilities(cv::Mat &image, cv::Mat &prob, Gaussian3D &N_o
     int cwidth = 3;
     double probability;
     int count = 0;
+    cv::Mat mu1_minus_m2;
+    cv::Mat gauss2invert_and_trace;
+    cv::Mat resulting;
     cv::Mat *pixels = new cv::Mat[rheight*cwidth];
     for (int j=0; j<image.cols-2; j++) {
         for (int i=0; i<image.rows-2; i++) {
@@ -117,8 +120,8 @@ int calculate_image_probabilities(cv::Mat &image, cv::Mat &prob, Gaussian3D &N_o
             double N_iw_No = (double)N_iw_No;
             double N_iw_Nb = (double)N_iw_Nb;*/
             try {
-                double N_iw_No = KL_Distance(N_iw, N_o);
-                double N_iw_Nb = KL_Distance(N_iw, N_b);
+                double N_iw_No = KL_Distance(N_iw, N_o, mu1_minus_m2, gauss2invert_and_trace, resulting);
+                double N_iw_Nb = KL_Distance(N_iw, N_b, mu1_minus_m2, gauss2invert_and_trace, resulting);
                 probability = exp(-N_iw_No / (N_iw_No + N_iw_Nb));
                 if (probability != probability) // nan again
                 {
@@ -135,6 +138,7 @@ int calculate_image_probabilities(cv::Mat &image, cv::Mat &prob, Gaussian3D &N_o
             //std::cout << prob << std::endl;
         }
     }
+    delete [] pixels;
     return 0;
 }
 
@@ -155,7 +159,6 @@ int main(int argc, const char * argv[])
     while(true) {
         capture.read(image);
         cv::Size new_img_dims = cv::Size(320, 240);
-        cv::Mat newImage;
         cv::resize(image, image, new_img_dims);
         if (count ==0) {
             count += 1;
