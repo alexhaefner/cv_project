@@ -23,14 +23,14 @@ class Gaussian3D
 {
 public:
     Gaussian3D();
-    Gaussian3D(cv::Mat*, int samples);
+    Gaussian3D(double **, int samples);
     ~Gaussian3D();
-    cv::Mat mu;
-    cv::Mat sigma;
+    double mu[3];
+    double sigma[9]; //this was cv::Mat but replaced with double array for speed
 };
 
-extern Gaussian3D build_gaussian(std::string image_names[], int length);
+extern Gaussian3D build_gaussian(std::string image_names[], int length, double **pixels);
 
-extern double KL_Distance(Gaussian3D &, Gaussian3D &, cv::Mat &, cv::Mat &, cv::Mat &);
+extern double KL_Distance(const Gaussian3D &,const Gaussian3D &, double [], double [], double []);
 
 #endif

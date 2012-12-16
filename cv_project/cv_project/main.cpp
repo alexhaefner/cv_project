@@ -9,9 +9,13 @@
 #include <iostream>
 #include <opencv2/opencv.hpp>
 #include <string.h>
+#include <vector>
+#include <cmath>
 #include "build_gaussian.h"
+#include <opencv2/features2d/features2d.hpp>
 
 #define NUM_THREADS 2
+#define NUM_EXTRA_IMAGE_SAMPLES 10
 
 std::string hand_files[] = {
     "/Users/ahaef/cv_project/hands/0.png",
@@ -49,25 +53,30 @@ struct gaussians {
     Gaussian3D *b;
 };
 
+int rheight = 3;
+int cwidth = 3;
+
 void *callKLDistance(void* pass)
 {
     gaussians *calls = (gaussians *)pass;
     //double result = KL_Distance(*(calls->a), *(calls->b));
     //return (void*)&result;
 }
+double new_maxprob = 0.0;
+static double prob_threshold = 0.001;
+static double search_threshold = 0.01;
 
-int calculate_image_probabilities(cv::Mat &image, cv::Mat &prob, Gaussian3D &N_o, Gaussian3D &N_b)
+int calculate_image_probabilities(cv::Mat &image, double *prob, double **pixels, Gaussian3D &N_o, Gaussian3D &N_b, double **hand_pixels, int *min_samples, int *sampled_count, int *total_samples)
 {
     int cstart = 0;
     int rstart = 0;
-    int rheight = 3;
-    int cwidth = 3;
     double probability;
+    cv::Vec3b maxprob_bgrpixel;
     int count = 0;
-    cv::Mat mu1_minus_m2;
-    cv::Mat gauss2invert_and_trace;
-    cv::Mat resulting;
-    cv::Mat *pixels = new cv::Mat[rheight*cwidth];
+    double mu1_minus_m2[3];
+    double gauss2invert_and_trace[9];
+    double resulting[3];
+    new_maxprob = 0.0;
     for (int j=0; j<image.cols-2; j++) {
         for (int i=0; i<image.rows-2; i++) {
             if (j==0)
@@ -88,12 +97,12 @@ int calculate_image_probabilities(cv::Mat &image, cv::Mat &prob, Gaussian3D &N_o
                 for (int rindex =rstart; rindex< rstart+rheight; rindex++)
                 {
                     cv::Vec3b bgrpixel = image.at<cv::Vec3b>(rindex, cindex);
-                    cv::Vec3d bgrpixel_float = cv::Vec3d(0.0, 0.0, 0.0);
+                    double *bgrpixel_float = pixels[count];
                     bgrpixel_float[0] = (double)bgrpixel[0] / 255;
                     bgrpixel_float[1] = (double)bgrpixel[1] / 255;
                     bgrpixel_float[2] = (double)bgrpixel[2] / 255;
                     //std::cout << bgrpixel_float << std::endl;
-                    pixels[count] = cv::Mat(bgrpixel_float, true);
+                    pixels[count] = bgrpixel_float;
                     count++;
                 }
             }
@@ -131,14 +140,34 @@ int calculate_image_probabilities(cv::Mat &image, cv::Mat &prob, Gaussian3D &N_o
             } catch (int e) {
                 printf("FAIL");
             }
-            if (probability >= .3914)
-            {
-                image.at<cv::Vec3b>(i,j) = cv::Vec3b(255, 255, 255);
-            }
+            new_maxprob = std::max(probability, new_maxprob);
+            prob[j*image.rows + i] = probability;
+            if (probability == new_maxprob)
+                maxprob_bgrpixel = image.at<cv::Vec3b>(i,j);
             //std::cout << prob << std::endl;
         }
     }
-    delete [] pixels;
+    // I cycle the max probability pixel from each frame into the color of the hand gaussian
+    // This keeps the gaussian up to date with changing lighting conditions
+    /*for (int j=0; j<image.cols-2; j++) {
+        for (int i=0; i<image.rows-2; i++) {
+            if (prob[j*image.rows + i] > new_maxprob - prob_threshold)
+                image.at<cv::Vec3b>(i,j) = cv::Vec3b(255, 255, 255);
+        }
+    }*/
+    //if (new_maxprob > old_maxprob - 0.1)
+    //{
+        double *px = hand_pixels[*min_samples + *sampled_count];
+        //std::cout << *min_samples + *sampled_count << std::endl;
+        px[0] = (double)maxprob_bgrpixel[0] / 255;
+        px[1] = (double)maxprob_bgrpixel[1] / 255;
+        px[2] = (double)maxprob_bgrpixel[2] / 255;
+        *sampled_count = (*sampled_count + 1) % NUM_EXTRA_IMAGE_SAMPLES; // window from 0 to 6
+        *total_samples = std::min(*total_samples + 1, *min_samples + NUM_EXTRA_IMAGE_SAMPLES);
+        N_o = Gaussian3D::Gaussian3D(hand_pixels, *total_samples);
+    //}
+    
+    std::cout << new_maxprob << std::endl;
     return 0;
 }
 
@@ -148,23 +177,94 @@ int main(int argc, const char * argv[])
     cv::Mat image;
     int imagecount = 6; // pre loaded images of hands and background
     // Generate gaussians of hands and background
-    Gaussian3D hand_gaussian = build_gaussian(hand_files, imagecount);
-    Gaussian3D background_gaussian = build_gaussian(background_files, imagecount);
+    int min_samples = 6;
+    int num_samples = 0;
+    int total_samples = min_samples;
+    double **hand_pixels = new double*[imagecount+NUM_EXTRA_IMAGE_SAMPLES];
+    double **background_pixels = new double*[imagecount];
+    Gaussian3D hand_gaussian = build_gaussian(hand_files, imagecount, hand_pixels);
+    Gaussian3D background_gaussian = build_gaussian(background_files, imagecount, background_pixels);
+    delete [] background_pixels;
+    
+    //Setup the rest of the hand pixels which will be filled in later by high probability samples
+    for (int i=imagecount; i<imagecount+NUM_EXTRA_IMAGE_SAMPLES; i++)
+    {
+        double *sum = new double[3];
+        sum[0] = 0.0;
+        sum[1] = 0.0;
+        sum[2] = 0.0;
+        hand_pixels[i] = sum;
+    }
+    
     //start video capture
     cv::VideoCapture capture =  cv::VideoCapture(0);
     cv::namedWindow("image");
-    cv::Mat prob;
+    double prob[360*240];// = double[360*240];
+    bool previous_mser[360*240];
+    for (int i=0; i<360*240; i++)
+    {
+        previous_mser[i] = false;
+        prob[i] = 0.0;
+    }
     // optimization to stop prob from being created every frame
-    int count = 0;
+    //pixels are the window of pixels for a covariance calculation in the image
+    double **pixels = new double*[rheight*cwidth];
+    for (int i=0; i<rheight*cwidth; i++) {
+        pixels[i] = new double[3];
+    }
+    cv::Mat imageClone;
     while(true) {
         capture.read(image);
-        cv::Size new_img_dims = cv::Size(320, 240);
+        cv::Size new_img_dims = cv::Size(360, 240);
         cv::resize(image, image, new_img_dims);
-        if (count ==0) {
-            count += 1;
-            prob = image.clone();
+        imageClone = image.clone();
+        calculate_image_probabilities(image, prob, pixels, hand_gaussian, background_gaussian, hand_pixels, &min_samples, &num_samples, &total_samples);
+        std::vector<std::vector<cv::Point> > contours;
+        cv::MSER()(imageClone, contours);
+        for (int i=(int)contours.size()-1; i>=0; i--)
+        {
+            const std::vector<cv::Point>& r = contours[i];
+            double totalprob = 0.0;
+            for (int j=0; j< (int)r.size(); j++)
+            {
+                cv::Point pt = r[j];
+                int index = pt.x *image.rows + pt.y;
+                totalprob += prob[index];
+                //Sum the probability in a region
+            }
+            double average_probability = totalprob/(int)r.size();
+            // IF the average probability in that region is above a threshold mark this as region to track
+            if (average_probability > new_maxprob - prob_threshold)
+            {
+                cv::drawContours(image, contours, i, cv::Scalar(0, 255, 255), 0.1);
+                std::cout << cv::contourArea(contours[i]) << std::endl;
+                /*for (int j=0; j< (int)r.size(); j++)
+                {
+                    cv::Point pt = r[j];
+                    int index = pt.x *image.rows + pt.y;
+                    previous_mser[index] = true;
+                    //previous_mser[index] += 1;
+                    image.at<cv::Vec3b>(pt) = cv::Vec3b(0, 255, 0);
+                }*/
+            }
+            // search_threshold is a larger threshold to know which pixels should be searched next time
+            /*else if (average_probability > new_maxprob - search_threshold)
+            {
+                for (int j=0; j< (int)r.size(); j++)
+                {
+                    cv::Point pt = r[j];
+                    //previous_mser[index] += 1;
+                    int origindex = pt.x *image.rows + pt.y;
+                    previous_mser[origindex] = true;
+                    int index = (origindex +1 >= image.rows *image.cols) ? origindex : origindex + 1;
+                    previous_mser[index] = true;
+                    index = (origindex -1 < 0) ? origindex : origindex - 1;
+                    previous_mser[origindex] = true;
+                    index = (origindex + image.rows >= image.rows *image.cols) ? origindex : origindex + image.rows;
+                    previous_mser[origindex] = true;
+                }
+            }*/
         }
-        calculate_image_probabilities(image, prob, hand_gaussian, background_gaussian);
         cv::imshow("image", image);
         int key = cv::waitKey(10);
         if (key != -1) {
@@ -174,6 +274,8 @@ int main(int argc, const char * argv[])
             break;
         }
     }
+    delete [] hand_pixels;
+    delete [] pixels;
     // insert code here...
     std::cout << "Hello, World!\n";
     return 0;
