@@ -1,0 +1,14 @@
+Work done by Alex Haefner as part of EECS 442 Umich Fall 2012.
+
+/cv_project contains all the c++ files/images
+/cv_project/cprofiles contains some useful performance data.  Must be opened on
+a mac
+
+The base directory contains the original opencv python version of the application.
+
+NOTE: the app probably won't work if you try to load it and run it.  You'll
+need to change the path of the images in main.cpp to load the initial hand and
+background images.  Otherwise the first phase of the program where it builds
+the hand and background gaussians will fail.  
+
+-Alex
