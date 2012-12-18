@@ -12,6 +12,7 @@ Gaussian3D::Gaussian3D()
 }
 
 Gaussian3D::Gaussian3D(double **bgr_averages, int samples)
+// Generate a gaussian in RGB or BGR space (3D) given an input of pixels as doubles.
 {
     cv::Vec3d sum = cv::Vec3d(0, 0, 0);
     for (int i=0; i<samples; i++) {
@@ -20,14 +21,11 @@ Gaussian3D::Gaussian3D(double **bgr_averages, int samples)
         sum[1] += (double)bgrPixel[1];
         sum[2] += (double)bgrPixel[2];
     }
-    //std::cout << sum << std::endl;
     cv::Vec3d averages = sum / samples;
     mu[0] = averages[0];
     mu[1] = averages[1];
     mu[2] = averages[2];
-    //std::cout << mu << std::endl;
-    //calcCovarMatrix doesn't works so I did it myself
-    //double vals[9];
+    //I rolled my own 3x3 covariance matrix calculator
     for (int i = 0; i<3; i++)
     {
         for (int j=0; j<3; j++)
@@ -48,16 +46,12 @@ Gaussian3D::Gaussian3D(double **bgr_averages, int samples)
                 subtraction = (bgrPixel[j] - mu[j])*(bgrPixel[i] - mu[i]);
                 
                 sigma[i*3 +j] = sigma[i*3 +j] + subtraction;
-                //printf("%f\n", subtraction);
             }
-            //vals[i*3 + j] = value;
-            //std::cout << sigma << std::endl;
         }
     }
     for (int i=0; i<9; i++)
         sigma[i] = sigma[i] / (samples - 1);
-    //std::cout << sigma << std::endl;
-    //cv::calcCovarMatrix(bgr_averages, samples, sigma, mu, 0, CV_COVAR_SCRAMBLED+CV_COVAR_SCALE);
+    //cv::calcCovarMatrix(bgr_averages, samples, sigma, mu, 0, CV_COVAR_SCRAMBLED+CV_COVAR_SCALE); TOO SLOW
 }
 
 Gaussian3D::~Gaussian3D()
@@ -66,6 +60,7 @@ Gaussian3D::~Gaussian3D()
 }
 
 Gaussian3D build_gaussian(std::string image_names[], int length, double **pixels)
+// Builds the initial hand and background gaussians from files.
 {
     int total_averaged_rgbs = 0;
     for (int index =0; index<length; index++) {
@@ -99,6 +94,7 @@ Gaussian3D build_gaussian(std::string image_names[], int length, double **pixels
 }
 
 double determinant3_3(const double sigma[])
+//cals determininant of a 3x3 matrix
 {
     const double ek = sigma[4]*sigma[8];
     const double fh = sigma[5]*sigma[7];
@@ -178,26 +174,20 @@ double trace(const double mat[])
 
 double KL_Distance(const Gaussian3D &gauss1, const Gaussian3D &gauss2, double mu1_minus_m2[], double gauss2invert_and_trace[], double resulting[])
 // mu1_minus_mu2 is 3x1, gauss2_invert_and_trace is 3x3, resulting is 3x1
+// computs Kullback-Leiber distance between two gaussians and returns the result (scalar double)
 {
-    //This function has been optimized to use as few cv::Mat 3x3 as possible because they have slow constructors.
+    //This function has been optimized to use as few double arrays as possible because this function was slow
     double result;
     try {
         subtract3_1(gauss1.mu, gauss2.mu, mu1_minus_m2);
-        //std::cout << gauss1.mu << std::endl;
-        // = cv::Mat(3,3,CV_64FC1);
         inverse3_3(gauss2.sigma, gauss2invert_and_trace);
-        //Right now it's gauss2invert
-        //resulting can be 3x1 here
         multiply3_3by3_1(gauss2invert_and_trace, mu1_minus_m2, resulting);
         add3_3(gauss2invert_and_trace, gauss1.sigma, gauss2invert_and_trace);
         double det_gauss2 = determinant3_3(gauss2.sigma);
         double det_gauss1 = determinant3_3(gauss1.sigma);
-        //and now it's gauss2trace
         double gauss_trace_res = trace(gauss2invert_and_trace);
         result = 0.5*log(det_gauss2/det_gauss1) + gauss_trace_res - 3.0;
         
-        // gauss2invert_and_trace is now used as transpose;
-        //mu1_minus_m2 is the result
         gauss_trace_res = resulting[0] * mu1_minus_m2[0] + resulting[1] * mu1_minus_m2[1] + resulting[2] * mu1_minus_m2[2];
         result += gauss_trace_res;
         if (result != result)  // nan case
