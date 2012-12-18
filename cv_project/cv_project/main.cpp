@@ -66,7 +66,7 @@ double new_maxprob = 0.0;
 static double prob_threshold = 0.001;
 static double search_threshold = 0.01;
 
-int calculate_image_probabilities(cv::Mat &image, double *prob, double **pixels, Gaussian3D &N_o, Gaussian3D &N_b, double **hand_pixels, int *min_samples, int *sampled_count, int *total_samples)
+int calculate_image_probabilities(cv::Mat &image, cv::Mat &prob_image, double *prob, double **pixels, Gaussian3D &N_o, Gaussian3D &N_b, std::vector<cv::Rect> &ROI)
 {
     int cstart = 0;
     int rstart = 0;
@@ -77,8 +77,29 @@ int calculate_image_probabilities(cv::Mat &image, double *prob, double **pixels,
     double gauss2invert_and_trace[9];
     double resulting[3];
     new_maxprob = 0.0;
+    int roisize = (int)ROI.size();
     for (int j=0; j<image.cols-2; j++) {
         for (int i=0; i<image.rows-2; i++) {
+            /*bool insideRange = false;
+            if(roisize != 0) {
+                for (int k=0; k<roisize; k++)
+                {
+                    cv::Rect boundingrect = ROI.at(k);
+                    if (boundingrect.contains(cv::Point(j, i)))
+                    {
+                        insideRange = true;
+                        break;
+                    }
+                }
+            } else
+            {
+                insideRange = true;
+            }
+            if (!insideRange)
+            {
+                // the point is not within any of our regions of interest and is not worth considering
+                continue;
+            }*/
             if (j==0)
                 cstart = 0;
             else if (j == image.cols -2)
@@ -142,8 +163,6 @@ int calculate_image_probabilities(cv::Mat &image, double *prob, double **pixels,
             }
             new_maxprob = std::max(probability, new_maxprob);
             prob[j*image.rows + i] = probability;
-            if (probability == new_maxprob)
-                maxprob_bgrpixel = image.at<cv::Vec3b>(i,j);
             //std::cout << prob << std::endl;
         }
     }
@@ -157,18 +176,26 @@ int calculate_image_probabilities(cv::Mat &image, double *prob, double **pixels,
     }*/
     //if (new_maxprob > old_maxprob - 0.1)
     //{
-        double *px = hand_pixels[*min_samples + *sampled_count];
-        //std::cout << *min_samples + *sampled_count << std::endl;
-        px[0] = (double)maxprob_bgrpixel[0] / 255;
-        px[1] = (double)maxprob_bgrpixel[1] / 255;
-        px[2] = (double)maxprob_bgrpixel[2] / 255;
-        *sampled_count = (*sampled_count + 1) % NUM_EXTRA_IMAGE_SAMPLES; // window from 0 to 6
-        *total_samples = std::min(*total_samples + 1, *min_samples + NUM_EXTRA_IMAGE_SAMPLES);
-        N_o = Gaussian3D::Gaussian3D(hand_pixels, *total_samples);
     //}
-    
-    std::cout << new_maxprob << std::endl;
+    for (int j=0; j<image.cols-2; j++) {
+        for (int i=0; i<image.rows-2; i++) {
+            //std::cout << prob_image.at<cv::Vec3f>(j,i) << std::endl;
+            
+            uchar res = pow(((prob[j*image.rows + i] -  new_maxprob) + 1.0), 2550) * 255;
+            //std::cout << prob[j*image.rows + i] << std::endl;
+            prob_image.at<uchar>(i,j) = res;
+        }
+    }
+    //std::cout << new_maxprob << std::endl;
     return 0;
+}
+
+void resetProbabilityMapToZero(double *prob)
+{
+    for (int i=0; i<360*240; i++)
+    {
+        prob[i] = 0.0;
+    }
 }
 
 
@@ -178,13 +205,15 @@ int main(int argc, const char * argv[])
     int imagecount = 6; // pre loaded images of hands and background
     // Generate gaussians of hands and background
     int min_samples = 6;
+    int min_bg_samples = 6;
+    int num_bg_samples = 0;
     int num_samples = 0;
     int total_samples = min_samples;
+    int total_bg_samples = min_samples;
     double **hand_pixels = new double*[imagecount+NUM_EXTRA_IMAGE_SAMPLES];
-    double **background_pixels = new double*[imagecount];
+    double **background_pixels = new double*[imagecount+NUM_EXTRA_IMAGE_SAMPLES];
     Gaussian3D hand_gaussian = build_gaussian(hand_files, imagecount, hand_pixels);
     Gaussian3D background_gaussian = build_gaussian(background_files, imagecount, background_pixels);
-    delete [] background_pixels;
     
     //Setup the rest of the hand pixels which will be filled in later by high probability samples
     for (int i=imagecount; i<imagecount+NUM_EXTRA_IMAGE_SAMPLES; i++)
@@ -194,18 +223,20 @@ int main(int argc, const char * argv[])
         sum[1] = 0.0;
         sum[2] = 0.0;
         hand_pixels[i] = sum;
+        double *sum2 = new double[3];
+        sum2[0] = 0.0;
+        sum2[1] = 0.0;
+        sum2[2] = 0.0;
+        background_pixels[i] = sum2;
     }
     
     //start video capture
     cv::VideoCapture capture =  cv::VideoCapture(0);
     cv::namedWindow("image");
-    double prob[360*240];// = double[360*240];
-    bool previous_mser[360*240];
-    for (int i=0; i<360*240; i++)
-    {
-        previous_mser[i] = false;
-        prob[i] = 0.0;
-    }
+    cv::namedWindow("probability");
+    cv::namedWindow("subregion");
+    double prob[360*240];
+    int theta = 0; //Theta as described in MSER tracking, is the interval on which we will back-check the entire image for new ROI
     // optimization to stop prob from being created every frame
     //pixels are the window of pixels for a covariance calculation in the image
     double **pixels = new double*[rheight*cwidth];
@@ -213,14 +244,20 @@ int main(int argc, const char * argv[])
         pixels[i] = new double[3];
     }
     cv::Mat imageClone;
+    cv::Mat prob_image = cv::Mat(360, 240, CV_8UC1, 1);
+    std::vector<cv::Rect> ROI;
     while(true) {
+        resetProbabilityMapToZero(prob);
         capture.read(image);
         cv::Size new_img_dims = cv::Size(360, 240);
         cv::resize(image, image, new_img_dims);
         imageClone = image.clone();
-        calculate_image_probabilities(image, prob, pixels, hand_gaussian, background_gaussian, hand_pixels, &min_samples, &num_samples, &total_samples);
+        cv::cvtColor(image, prob_image, CV_BGR2GRAY, 1);
+        //cv::GaussianBlur(image, image, cv::Size(3,3), 0.0);
+        calculate_image_probabilities(image, prob_image, prob, pixels, hand_gaussian, background_gaussian, ROI);
         std::vector<std::vector<cv::Point> > contours;
-        cv::MSER()(imageClone, contours);
+        cv::GaussianBlur(prob_image, imageClone, cv::Size(3, 3), 0.0);
+        cv::MSER()(prob_image, contours);
         for (int i=(int)contours.size()-1; i>=0; i--)
         {
             const std::vector<cv::Point>& r = contours[i];
@@ -234,18 +271,78 @@ int main(int argc, const char * argv[])
             }
             double average_probability = totalprob/(int)r.size();
             // IF the average probability in that region is above a threshold mark this as region to track
-            if (average_probability > new_maxprob - prob_threshold)
+            if (average_probability > new_maxprob - 0.01 && theta == 0 ) // if theta is 0 it's time to reconsider our ROIs
             {
-                cv::drawContours(image, contours, i, cv::Scalar(0, 255, 255), 0.1);
-                std::cout << cv::contourArea(contours[i]) << std::endl;
-                /*for (int j=0; j< (int)r.size(); j++)
+                cv::Rect boundingRect = cv::boundingRect(contours[i]);
+                ROI.push_back(boundingRect);
+            }
+            if (average_probability > new_maxprob - 0.0002)
+            {
+                std::cout << average_probability << std::endl;
+                //cv::drawContours(image, contours, i, cv::Scalar(0, 255, 255), 0.1);
+                //std::cout << cv::contourArea(contours[i]) << std::endl;
+                cv::Rect rect = cv::boundingRect(r);
+                cv::RotatedRect rotRect = fitEllipse(r);
+                rotRect.angle = (double)CV_PI/2 - rotRect.angle;
+                cv::ellipse(image, rotRect, cv::Scalar(196, 255, 255));
+                cv::rectangle(image, rect.tl(), rect.br(), cv::Scalar(255, 0, 0), 0.1);
+                //newRects.push_back(rect);
+                for (int j=0; j< (int)r.size(); j++)
                 {
                     cv::Point pt = r[j];
-                    int index = pt.x *image.rows + pt.y;
-                    previous_mser[index] = true;
                     //previous_mser[index] += 1;
-                    image.at<cv::Vec3b>(pt) = cv::Vec3b(0, 255, 0);
-                }*/
+                    prob_image.at<uchar>(pt) = (uchar)255;
+                }
+                cv::Rect boundingRect = cv::boundingRect(contours[i]);
+                cv::Mat Subregion = image(boundingRect).clone();
+                cv::threshold(Subregion, Subregion, 150, 150, CV_THRESH_BINARY_INV);
+                //cv::imshow("subregion", Subregion);
+                double minprob = 1.0;
+                double maxprob = 0.0;
+                cv::Vec3b maxprob_bgrpixel;
+                cv::Vec3b minprob_bgrpixel;
+                int topyval, bottomy, topx, bottomx;
+                topyval = boundingRect.tl().y;
+                bottomy = boundingRect.br().y;
+                topx = boundingRect.tl().x;
+                bottomx = boundingRect.br().x;
+                //std::cout << topyval << std::endl;
+                for (int x=topx; x<bottomx; x++)
+                {
+                    for (int y=topyval; y<bottomy; y++)
+                    {
+                        int idx = x*image.rows +y;
+                        double probability = prob[idx];
+                        //std::cout << minprob << std::endl;
+                        minprob = std::min(probability, minprob);
+                        if (probability == minprob)
+                            minprob_bgrpixel = image.at<cv::Vec3b>(y, x);
+                        
+                        maxprob = std::max(probability, maxprob);
+                       
+                        if (probability == maxprob)
+                            maxprob_bgrpixel = image.at<cv::Vec3b>(y,x);
+                    }
+                }
+                
+                if(minprob - maxprob <= 0.1)
+                    continue;
+                
+                double *px = hand_pixels[min_samples + num_samples];
+                //std::cout << *min_samples + *sampled_count << std::endl;
+                px[0] = (double)maxprob_bgrpixel[0] / 255;
+                px[1] = (double)maxprob_bgrpixel[1] / 255;
+                px[2] = (double)maxprob_bgrpixel[2] / 255;
+                num_samples = (num_samples + 1) % NUM_EXTRA_IMAGE_SAMPLES; // window from 0 to 6
+                total_samples = std::min(total_samples + 1, min_samples + NUM_EXTRA_IMAGE_SAMPLES);
+                
+                double *px2 = background_pixels[min_bg_samples + num_bg_samples];
+                //std::cout << *min_samples + *sampled_count << std::endl;
+                px2[0] = (double)minprob_bgrpixel[0] / 255;
+                px2[1] = (double)minprob_bgrpixel[1] / 255;
+                px2[2] = (double)minprob_bgrpixel[2] / 255;
+                num_bg_samples = (num_bg_samples + 1) % NUM_EXTRA_IMAGE_SAMPLES; // window from 0 to 6
+                total_bg_samples = std::min(total_bg_samples + 1, min_bg_samples + NUM_EXTRA_IMAGE_SAMPLES);
             }
             // search_threshold is a larger threshold to know which pixels should be searched next time
             /*else if (average_probability > new_maxprob - search_threshold)
@@ -265,7 +362,18 @@ int main(int argc, const char * argv[])
                 }
             }*/
         }
+        theta++;
+        if (theta == 5)
+        {
+            theta = 0;
+            ROI.clear();
+        }
+        
+        // regenerate hand/bg gaussians based on interest regions
+        hand_gaussian = Gaussian3D::Gaussian3D(hand_pixels, total_samples);
+        background_gaussian = Gaussian3D::Gaussian3D(background_pixels, total_bg_samples);
         cv::imshow("image", image);
+        cv::imshow("prob_image", imageClone);
         int key = cv::waitKey(10);
         if (key != -1) {
             std::cout << "key: " << key << std::endl;

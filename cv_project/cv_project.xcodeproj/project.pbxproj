@@ -358,7 +358,6 @@
 					"$(OTHER_CFLAGS)",
 					"-O1",
 					"-O2",
-					"-O3",
 					"-msse3",
 				);
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -384,7 +383,6 @@
 					"$(OTHER_CFLAGS)",
 					"-O1",
 					"-O2",
-					"-O3",
 					"-msse3",
 				);
 				PRODUCT_NAME = "$(TARGET_NAME)";
